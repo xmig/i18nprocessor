@@ -3,13 +3,15 @@ import re
 import copy
 from logging import getLogger
 from logging.config import dictConfig
-from sysutils.ioutils import file_exists, check_or_create_folder, list_folder, get_basename, file_rename
+from sysutils.utils.file_utils import file_exists, check_or_create_folder, list_folder, get_basename, file_rename
 from sysutils.utils.dict_utils import walk_through, dict_merge, get_or_create
 from sysutils.utils.debug import nice_print
 from sysutils.utils.json_tools import json_file, json_write
 from sysutils.csv_utils import write_as_csv, load_csv_as_dict_iterator
 from sysutils.timeutils import time_as_string
 from mmh3 import hash128
+
+check_or_create_folder("./logs")
 
 from logging_config import LOGGING_CONFIG
 dictConfig(LOGGING_CONFIG)
@@ -34,31 +36,33 @@ class I18nPerformer:
         
         self.masterdata = {}
         self.master_wrk = {}
-        
+    
+    @staticmethod
+    def timestring():
+        return time_as_string(None, '%Y-%m-%d_%H-%M')
+    
     def master_filename(self):
         return os.path.join(self.store_folder, 'MASTER.json')
 
+    def backup_file(self, name):
+        new_name = "{}.{}.bak".format(name, self.timestring())
+        file_rename(name, new_name)
+        _logger.info("file '{}' backuping...".format(new_name))
+        return new_name
+    
     def backup_master_file(self):
         name = self.master_filename()
         if file_exists(name):
-            time_str = time_as_string(None, '%Y-%m-%d_%H-%M')
-            backup_name = os.path.join(self.store_folder, "{}-{}".format(time_str, 'MASTER.json'))
-            _logger.info("Masterdata file '{}' backuping...".format(backup_name))
-            file_rename(name, backup_name)
+            return self.backup_file(name)
             
-    def backup_file(self, name):
-        new_name = "{}.back".format(name)
-        file_rename(name, new_name)
-        return new_name
-        
     def json_filename(self, filename_prefix):
         return '{}.json'.format(filename_prefix)
     
     def csv_input_filename(self, lang):
-        return os.path.join(self.input_folder, '{}.csv'.format(lang))
+        return os.path.join(self.input_folder, '{}.in.csv'.format(lang))
     
     def csv_output_filename(self, lang):
-        return os.path.join(self.output_folder, '{}.csv'.format(lang))
+        return os.path.join(self.output_folder, '{}.out.csv'.format(lang))
     
     def packer(self, value, path, lang):
         if not value:
@@ -74,7 +78,7 @@ class I18nPerformer:
         
         if lang_is_base:
             if not item:
-                item = {'hash': hash, 'phrase': value, 'key': key, 'placed': [], 'langs': {}}
+                item = {'hash': hash, 'phrase': value, 'key': key, 'placed': []}
                 self.masterdata[hash] = item
             self.master_wrk[whole_key] = item
             item['placed'].append(path)
@@ -84,7 +88,6 @@ class I18nPerformer:
                 _logger.debug("Extra '{}' phrase will be removed {}".format(lang, value))
                 return
             base_item['placed'].append(path)
-            base_item['langs'][lang] = base_item['langs'][lang] +1 if base_item['langs'] else 1
             
     def unpack(self, data, lang):
         result = {}
@@ -130,12 +133,14 @@ class I18nPerformer:
     
     def process_save(self, filename, lang):
         header = ["phrase", lang]
+        check_or_create_folder(filename, skip_last_part=True)
         with open(filename, "w") as fh:
             datalist = []
             for key, item in self.masterdata.items():
                 if not item.get('phrase'):
                     continue
-                if item['langs'].get(lang):
+                used_langs = {x.split(self.SEPARATOR)[0] for x in item['placed']}
+                if lang in used_langs:
                     _logger.debug("Phrase already presented, lang: '{}' phrase: '{}'. SKIPPED".format(lang, item.get('phrase')))
                     continue
                 item = copy.deepcopy(item)
@@ -152,14 +157,22 @@ class I18nPerformer:
             
     def save(self, langs: (list, tuple)):
         _logger.info("Masterdata file '{}' updating...".format(self.master_filename()))
-        json_write(self.master_filename(), self.masterdata)
+        filename = self.master_filename()
+        check_or_create_folder(filename, True)
+        json_write(filename, self.masterdata)
         for lang in langs:
             filename = self.csv_output_filename(lang)
+            if (file_exists(filename)):
+                self.backup_file(filename)
             _logger.info("lang: '{}' file '{}' composing...".format(lang, filename))
             self.process_save(filename, lang)
         
     def join(self, langs: (list, tuple)):
-        self.masterdata = json_file(self.master_filename())
+        try:
+            self.masterdata = json_file(self.master_filename())
+        except FileNotFoundError as ex:
+            _logger.error("MASTER file '{}' not found. STOPPED.".format(self.master_filename()))
+            return
     
         for lang in langs:
             fieldnames = ['phrase', lang]
@@ -203,14 +216,12 @@ class I18nPerformer:
         self.save(langs)
 
 
-def i18n_load(base_language, target_languages):
-    perfomer = I18nPerformer(base_language)
+def i18n_load(perfomer, target_languages):
     perfomer.load(target_languages)
     _logger.info("i18n {} completed".format('load'))
 
 
-def i18n_apply(base_language, target_languages):
-    perfomer = I18nPerformer(base_language)
+def i18n_apply(perfomer, target_languages):
     perfomer.join(target_languages)
     _logger.info("i18n {} completed".format('apply'))
 
@@ -222,14 +233,28 @@ def main(command=None):
     base_language = os.environ.get('BASE_LANGUAGE') or "en"
     target_languages = os.environ.get('TARGET_LANGUAGES') or "ru"
     target_languages = [x.strip() for x in re.split('[\s|,]', target_languages) if x.strip()]
+
+    # perfomer = I18nPerformer(
+    #     baselang=base_language,
+    #     ia8n_folder='./data/i18n',
+    #     store_folder='./data/storage',
+    #     output_folder='./data/out',
+    #     input_folder='./data/in')
     
-    if command == "load":   return i18n_load(base_language, target_languages)
-    if command == "apply":  return i18n_apply(base_language, target_languages)
+    perfomer = I18nPerformer(
+        baselang=base_language,
+        ia8n_folder='./data/i18n',
+        store_folder='./data/storage',
+        output_folder='./data/i18n',
+        input_folder='./data/i18n')
+    
+    if command == "load":   return i18n_load(perfomer, target_languages)
+    if command == "apply":  return i18n_apply(perfomer, target_languages)
     
     _logger.error("Please set up COMMAND ENVIRONMENT Variable 'load' or 'apply' ")
 
 
 if __name__ == "__main__":
     #main(sys.argv[1:])
-    # main('load')
-    main('apply')
+    main('load')
+    # main('apply')

@@ -1,28 +1,20 @@
 """
 copyright tretyak@gmail.com
-MIT License
-
 Set of Input / Output utilities
-
-# todo merge this module with "file_utils"
-
 """
+
 import os
 import io
 import shutil
 import glob
-import traceback
-from random import randint
+import random
+import string
 
-from sysutils.timeutils import time_as_string
-from logging import getLogger
-_logger = getLogger("sysutils")
-
-from pprint import PrettyPrinter
+from functools import partial
 
 
-def printf(str, *args):
-    print(str % args, end='')
+def file_exists(file_name):
+    return os.path.exists(file_name)
 
 
 def full_file_name(file_name, folder=None, extension=None):
@@ -30,40 +22,10 @@ def full_file_name(file_name, folder=None, extension=None):
     file_name = file_name if extension is None else "{}.{}".format(file_name, extension)
     return file_name
 
-#
-# def write_file(data, file_name, folder=None, extension=None, mode='wb'):
-#     file_name = full_file_name(file_name, folder, extension)
-#     with io.open(file_name, mode) as file_stream:
-#         file_stream.write(data)
-
-
-def nice_dict_print(data, file_name, folder=None, extension=None, indent=4):
-    file_name = full_file_name(file_name, folder, extension)
-    with io.open(file_name, 'wb') as file_stream:
-        printer = PrettyPrinter(stream=file_stream, indent=indent)
-        printer.pprint(data)
-
-
-def get_random_file_name(prefix, ext):
-    return "{}_{}_{}.{}".format(prefix, time_as_string(None, time_fmt='%Y%m%d_%H%M%S'), randint(0,9), ext)
-
 
 def file_extension(file_name):
     name, extension = os.path.splitext(file_name)
     return extension[1:] if extension and len(extension) > 1 else None
-
-
-def file_size(file_name, skip_exception=True):
-    try:
-        return os.path.getsize(file_name)
-    except:
-        if skip_exception:
-            return -1
-        raise
-
-
-def file_exists(file_name):
-    return os.path.exists(file_name)
 
 
 def split_path2(path):
@@ -96,9 +58,10 @@ def part_of_path(path, start_from, stop_to):
     return '/'.join(parts[start_from:stop_to])
 
 
-def check_or_create_folder(path):
+def check_or_create_folder(path, skip_last_part=False):
     path = os.path.normpath(os.path.abspath(path))
     parts = split_path(path)
+    parts = parts[:-1] if skip_last_part else parts
     for i, item in enumerate(parts):
         temp_parts = parts[0: i + 1]
         temp_name = '/'.join(temp_parts)[1:]
@@ -106,9 +69,7 @@ def check_or_create_folder(path):
             try:
                 os.mkdir(temp_name)
             except OSError as er:
-                _logger.warning("Cannot create folder: '{}'; Exception: {}".format(temp_name, er))
                 raise
-            #print ("Created: '{}' .. [{}]".format(temp_name, item))
     return path
 
 
@@ -132,8 +93,12 @@ def list_folder(folder_name):
     try:
         return os.listdir(folder_name) if os.path.exists(folder_name) else []
     except Exception as e:
-        _logger.warning("Cannot check folder '{}' .. {}".format(folder_name, e))
-        return []
+        raise
+
+
+def random_file_name(file_ext=None, name_size=16):
+    name = ''.join([random.choice(string.ascii_lowercase) for _ in range(name_size)])
+    return "{}.{}".format(name, file_ext) if file_ext else name
 
 
 def get_file_names(file_mask, folder="./"):
@@ -144,34 +109,27 @@ def get_file_names(file_mask, folder="./"):
 def read_file(file_name, folder=None, extension=None, mode='rb'):
     try:
         file_name = full_file_name(file_name, folder, extension)
-        with io.open(file_name, mode) as file_stream:
+        with open(file_name, mode) as file_stream:
             return file_stream.read()
     except Exception as ex:
-        _logger.warning("Cannot read file: '{}'; Reason: '{}' [{}]".format(file_name, ex, traceback.format_exc()))
+        raise
 
 
-def read_text_file_as_lines(filename):
-    with open(filename, "rt", encoding="utf-8") as f:
-        lines = [line.rstrip('\n') for line in f.readlines()]
-    return lines
+def read_file_as_utf8(full_file_name):
+    with open(full_file_name, "rb") as h:
+        text = str(h.read(), 'utf-8')
+        return text
 
 
 def read_text_file(file_name, folder=None, extension=None):
     return str(read_file(file_name, folder, extension, mode='rt'))
 
 
-def write_file(data, file_name, folder=None, extension=None, mode='wb'):
-    try:
-        file_name = full_file_name(file_name, folder, extension)
-        with io.open(file_name, mode) as file_stream:
-            if isinstance(data, str):
-                data = bytes(data.encode('utf-8'))
-            file_stream.write(data)
-    except Exception as ex:
-        _logger.warning("Cannot write file: '{}'; Reason: '{}' [{}]".format(file_name, ex, traceback.format_exc()))
-        return None
-    else:
-        return file_name
+def read_text_file_as_lines(filename, folder=None):
+    filename = filename if not folder else os.path.join(folder, filename)
+    with open(filename, "rt", encoding="utf-8") as f:
+        lines = [line.rstrip('\n') for line in f.readlines()]
+    return lines
 
 
 def write_text_file(data, file_name, folder=None, extension=None, mode='wb'):
@@ -187,17 +145,22 @@ def write_text_file(data, file_name, folder=None, extension=None, mode='wb'):
         return file_name
 
 
-# def write(data, filename, mode='wb'):
-#     with open(filename, mode) as fh:
-#         fh.write(data)
+def write_binary_file(data, file_name=None, folder=None, extension=None):
+    try:
+        file_name = file_name or random_file_name(file_name)
+        file_name = full_file_name(file_name, folder, extension)
+        with io.open(file_name, 'wb') as file_stream:
+            file_stream.write(data)
+    except Exception as ex:
+        raise
+    else:
+        return file_name
 
 
 def get_filename(full_filename):
-    """Returns the final component of a pathname"""
     return os.path.basename(full_filename)
 
 
-# todo remove this method
 def get_basename(filename):
     name = os.path.basename(filename)
     return os.path.splitext(name)[0]
@@ -231,14 +194,17 @@ def get_long_ext(filename):
 
 
 def make_filename_link(source, target):
-    #return os.symlink(source, target)
     return os.link(source, target)
 
 
-def is_file_exists(path):
+def is_file_exists(path, folder=None):
+    path = path if not folder else os.path.join(folder, path)
     return os.path.exists(path)
 
 
-# if __name__ == "__main__":
-#     name = "/mydev/worddict/.data/worddata/store/videochannels/ted/en/680.mp4"
-#     folder = get_folder(name)
+def walk(root: str = './', perform: callable = None, followlinks: bool = False):
+    for path, folders, files in os.walk(root, followlinks=followlinks):
+        for folder in folders:
+            walk(folder, perform, followlinks)
+        for file in files:
+            perform(path, file)

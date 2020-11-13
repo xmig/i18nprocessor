@@ -21,7 +21,7 @@ LOGGING_CONFIG = {
             'file': {
                 'level': 'DEBUG',
                 'class': 'logging.handlers.RotatingFileHandler',
-                'filename': 'i18n.log'.format(),
+                'filename': './logs/i18n.log'.format(),
                 'maxBytes': 1024*1024*1,
                 'backupCount': 10,
                 'formatter': 'simple'
