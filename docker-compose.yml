@@ -1,0 +1,14 @@
+version: '3'
+services:
+  i18n-processor:
+    image: i18n_processor
+    restart: "no"
+    environment:
+      BASE_LANGUAGE: "en"
+      TARGET_LANGUAGES: "de, ru"
+    volumes:
+      - "./data/i18n:/data/i18n"
+      - "./data/storage:/data/storage"
+      - "./data/out:/data/out"
+      - "./data/in:/data/in"
+    command: "./i8n load"
