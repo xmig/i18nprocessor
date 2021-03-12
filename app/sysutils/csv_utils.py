@@ -12,7 +12,7 @@ class CsvException(Exception):
     pass
 
 
-def load_csv_as_dict_iterator(file_obj, fieldnames=None, record_num_field="#"):
+def load_csv_as_dict_iterator(file_obj, fieldnames=None, delimiter=";", quotechar='"', record_num_field="#"):
     """
     Iterator.
     Read & unpack CSV File Header. Return the NEXT record.
@@ -35,7 +35,7 @@ def load_csv_as_dict_iterator(file_obj, fieldnames=None, record_num_field="#"):
     first_line_need_to_be_skipped = False
 
     if fieldnames:
-        csv_reader = csv.DictReader(file_obj, fieldnames=fieldnames)
+        csv_reader = csv.DictReader(file_obj, fieldnames=fieldnames, delimiter=delimiter, quotechar=quotechar)
         first_line_need_to_be_skipped = True if has_header else False
     else:
         if not has_header:

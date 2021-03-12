@@ -2,7 +2,7 @@ import json
 import datetime
 import decimal
 import uuid
-import six
+# import six
 
 from functools import wraps
 from logging import getLogger
@@ -123,12 +123,12 @@ class ExtendedJsonEncoder(json.JSONEncoder):
                 return obj.isoformat()
             elif isinstance(obj, datetime.time):
                 return obj.isoformat()
-            elif isinstance(obj, datetime.timedelta):
-                return six.text_type(obj.total_seconds())
+            # elif isinstance(obj, datetime.timedelta):
+            #     return six.text_type(obj.total_seconds())
             elif isinstance(obj, decimal.Decimal):
                 return float(obj)
-            elif isinstance(obj, uuid.UUID):
-                return six.text_type(obj)
+            # elif isinstance(obj, uuid.UUID):
+            #     return six.text_type(obj)
             # elif isinstance(obj, OrderedMapSerializedKey):
             #     return dict(obj)
             # elif isinstance(obj, (collections.Set, SortedSet)):

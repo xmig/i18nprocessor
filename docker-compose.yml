@@ -1,14 +1,13 @@
 version: '3'
 services:
   i18n-processor:
+#    image: xmig/i18n_processor
     image: i18n_processor
     restart: "no"
     environment:
       BASE_LANGUAGE: "en"
-      TARGET_LANGUAGES: "de, ru"
+      TARGET_LANGUAGES: "ru"
     volumes:
       - "./data/i18n:/data/i18n"
-      - "./data/storage:/data/storage"
-      - "./data/out:/data/out"
-      - "./data/in:/data/in"
-    command: "./i8n load"
+      - "./data/i18n:/data/storage"
+    command: "./i18n xapply"

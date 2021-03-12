@@ -1,6 +1,7 @@
 import os, sys
 import re
 import copy
+import subprocess
 from logging import getLogger
 from logging.config import dictConfig
 from sysutils.utils.file_utils import file_exists, check_or_create_folder, list_folder, get_basename, file_rename
@@ -11,7 +12,7 @@ from sysutils.csv_utils import write_as_csv, load_csv_as_dict_iterator
 from sysutils.timeutils import time_as_string
 from mmh3 import hash128
 
-check_or_create_folder("./logs")
+check_or_create_folder("../logs")
 
 from logging_config import LOGGING_CONFIG
 dictConfig(LOGGING_CONFIG)
@@ -19,24 +20,35 @@ dictConfig(LOGGING_CONFIG)
 _logger = getLogger(__name__)
 
 
+def get_hash(value):
+    return str(hash128(value))
+
+
 class I18nPerformer:
     SEPARATOR = '.'
     
     def __init__(self,
-                 baselang="en",
-                 ia8n_folder='./data/i18n',
-                 store_folder='./data/storage',
-                 output_folder='./data/out',
-                 input_folder='./data/in'):
+            baselang="en",
+            ia8n_folder='./data/i18n',
+            output_folder='./data/out',
+            input_folder='./data/in',
+            store_folder = './data/storage',
+            delimiter=';',
+            need_repack=False):
         self.baselang = baselang
         self.i18n_folder = ia8n_folder
         self.store_folder = store_folder
         self.output_folder = output_folder
         self.input_folder = input_folder
+        self.delimiter = delimiter
+        self.need_repack = need_repack
         
         self.masterdata = {}
         self.master_wrk = {}
     
+    def json_repack(self, filename):
+        subprocess.run(["/app/json_repack.pl", filename])
+        
     @staticmethod
     def timestring():
         return time_as_string(None, '%Y-%m-%d_%H-%M')
@@ -68,7 +80,7 @@ class I18nPerformer:
         if not value:
             return
         lang_is_base = lang == self.baselang
-        hash = hash128(value)
+        hash = get_hash(value)
         item = self.masterdata.get(hash)
         
         pathes = path.split(self.SEPARATOR)
@@ -91,8 +103,8 @@ class I18nPerformer:
             
     def unpack(self, data, lang):
         result = {}
-        hashlangtab = {str(hash128(item['phrase'])): item for item in data}
-        
+        hashlangtab = {get_hash(item['phrase']): item for item in data}
+
         for hash, master in self.masterdata.items():
             data = hashlangtab.get(hash)
             if not data:
@@ -151,9 +163,8 @@ class I18nPerformer:
             if not datalist:
                 _logger.info("Output file is empty for lang: {}. SKIPPED".format(lang))
                 return
-            write_as_csv(fh, datalist, fieldnames=header)
+            write_as_csv(fh, datalist, fieldnames=header, delimiter=self.delimiter)
             _logger.info("lang {}; {} records was stored in file {}".format(lang, len(datalist), filename))
-            
             
     def save(self, langs: (list, tuple)):
         _logger.info("Masterdata file '{}' updating...".format(self.master_filename()))
@@ -167,7 +178,7 @@ class I18nPerformer:
             _logger.info("lang: '{}' file '{}' composing...".format(lang, filename))
             self.process_save(filename, lang)
         
-    def join(self, langs: (list, tuple)):
+    def apply(self, langs: (list, tuple)):
         try:
             self.masterdata = json_file(self.master_filename())
         except FileNotFoundError as ex:
@@ -179,7 +190,7 @@ class I18nPerformer:
             try:
                 filename = self.csv_input_filename(lang)
                 with open(filename, "r") as fh:
-                    data = self.unpack([x for x in load_csv_as_dict_iterator(fh, fieldnames=fieldnames)], lang)
+                    data = self.unpack([x for x in load_csv_as_dict_iterator(fh, fieldnames=fieldnames, delimiter=self.delimiter)], lang)
                     _logger.info("lang: '{}' file '{}' processing...".format(lang, filename))
                     for prefix in data.keys():
                         content = data[prefix]
@@ -194,6 +205,10 @@ class I18nPerformer:
                         else:
                             _logger.info("lang {}. Content file composed '{}'.".format(lang, outputfilename))
                         json_write(outputfilename, content)
+                        
+                        if (self.need_repack):
+                            self.json_repack(outputfilename)
+                            
             except IOError as ex:
                 _logger.warning("Cannot process '{}'; Exception: {}".format(lang, ex))
 
@@ -202,8 +217,7 @@ class I18nPerformer:
             whole_file_name = os.path.join(folder, filename)
             self.init_from_file(whole_file_name, get_basename(filename), lang)
             
-    def load(self, langs: (list, tuple)):
-        
+    def extract(self, langs: (list, tuple)):
         folder = os.path.join(self.i18n_folder, self.baselang)
         _logger.info("loading base language '{}' content...".format(self.baselang))
         self.load_folder(folder, self.baselang)
@@ -216,13 +230,13 @@ class I18nPerformer:
         self.save(langs)
 
 
-def i18n_load(perfomer, target_languages):
-    perfomer.load(target_languages)
+def i18n_extract(performer, target_languages):
+    performer.extract(target_languages)
     _logger.info("i18n {} completed".format('load'))
 
 
-def i18n_apply(perfomer, target_languages):
-    perfomer.join(target_languages)
+def i18n_apply(performer, target_languages):
+    performer.apply(target_languages)
     _logger.info("i18n {} completed".format('apply'))
 
 
@@ -231,30 +245,25 @@ def main(command=None):
     _logger.info("i18n started. command: {}".format(command))
     
     base_language = os.environ.get('BASE_LANGUAGE') or "en"
-    target_languages = os.environ.get('TARGET_LANGUAGES') or "ru"
+    target_languages = os.environ.get('TARGET_LANGUAGES') or "de"
     target_languages = [x.strip() for x in re.split('[\s|,]', target_languages) if x.strip()]
-
-    # perfomer = I18nPerformer(
-    #     baselang=base_language,
-    #     ia8n_folder='./data/i18n',
-    #     store_folder='./data/storage',
-    #     output_folder='./data/out',
-    #     input_folder='./data/in')
     
-    perfomer = I18nPerformer(
+    performer = I18nPerformer(
         baselang=base_language,
-        ia8n_folder='./data/i18n',
-        store_folder='./data/storage',
-        output_folder='./data/i18n',
-        input_folder='./data/i18n')
+        ia8n_folder  ='../data/i18n',
+        output_folder='../data/i18n',
+        input_folder ='../data/i18n',
+        store_folder ='../data/storage',
+        need_repack = True if command == 'xapply' else False
+    )
     
-    if command == "load":   return i18n_load(perfomer, target_languages)
-    if command == "apply":  return i18n_apply(perfomer, target_languages)
+    if command == "extract":    return i18n_extract(performer, target_languages)
+    if command == "apply":      return i18n_apply(performer, target_languages)
+    if command == "xapply":     return i18n_apply(performer, target_languages)
     
     _logger.error("Please set up COMMAND ENVIRONMENT Variable 'load' or 'apply' ")
 
 
 if __name__ == "__main__":
-    #main(sys.argv[1:])
-    main('load')
-    # main('apply')
+    os.environ['TARGET_LANGUAGES'] = 'ru'
+    main('extract')

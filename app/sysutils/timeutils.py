@@ -5,9 +5,6 @@ Set of utils for time manipulation
 from datetime import datetime, timezone, timedelta
 import time
 
-from dateutil import parser
-
-
 _default_format_datetime = '%Y-%m-%d %H:%M:%S'
 
 
@@ -31,10 +28,6 @@ def timestamp(future_seconds=0):
 
 def hour_subtract(same_date, hours):
     return same_date - timedelta(hours=hours)
-
-
-def sting_to_date(date_str):
-    return parser.parse(date_str)
 
 
 def date_time_now():
